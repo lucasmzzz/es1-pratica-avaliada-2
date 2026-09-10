@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, Tuple, Any
 
 # ==========================================
-# INTERFACES (Contratos Abstratoss)
+# INTERFACES (Contratos Abstratos)
 # ==========================================
 class IRepositorio(ABC):
     @abstractmethod
