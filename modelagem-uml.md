@@ -64,7 +64,7 @@ classDiagram
     Leitor "1" --> "*" Emprestimo : realiza
     Leitor "1" --> "*" Reserva : solicita
     Livro "1" --> "*" Exemplar : possui
-    Exemplar "1" --> "0..1" Emprestimo : alocado em
+    Exemplar "1" --> "*" Emprestimo : é alocado em
     Livro "1" --> "*" Reserva : possui
     Emprestimo "1" --> "0..1" Multa : gera
 ```
