@@ -6,76 +6,70 @@ from reportlab.pdfgen import canvas
 from abc import ABC, abstractmethod
 
 # ==========================================
-# INTERFACES (Contratos)
+# INTERFACES
 # ==========================================
 class IRepositorio(ABC):
     @abstractmethod
-    def buscar(self, identificador: str) -> dict:
+    def buscar(self, id):
         pass
     
     @abstractmethod
-    def salvar(self, entidade: dict) -> int:
-        pass
-
-class IServicoNotificacao(ABC):
-    @abstractmethod
-    def enviar(self, destinatario: str, assunto: str, mensagem: str):
-        pass
-
-class IServicoRelatorio(ABC):
-    @abstractmethod
-    def gerar_comprovante(self, dados: dict):
+    def salvar(self, entidade):
         pass
 
 # ==========================================
-# REPOSITÓRIOS SQLITE (Infraestrutura)
+# UTILITÁRIOS
 # ==========================================
 def dict_factory(cursor, row):
-    """Converte as tuplas do SQLite em dicionários puros."""
     d = {}
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
     return d
 
-class RepositorioLivroSQLite(IRepositorio):
-    def __init__(self, db_path):
+# ==========================================
+# REPOSITÓRIOS E SERVIÇOS 
+# ==========================================
+class RepositorioLivro(IRepositorio):
+    """Responsável apenas por operações com livros no BD"""
+    def __init__(self, db_path='biblioteca.db'):
         self.db_path = db_path
 
-    def buscar(self, isbn: str) -> dict:
+    def buscar(self, id):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
-            return conn.execute("SELECT * FROM livros WHERE isbn = ?", (isbn,)).fetchone()
+            return conn.execute("SELECT * FROM livros WHERE isbn = ?", (id,)).fetchone()
             
-    def salvar(self, entidade: dict) -> int:
-        pass 
-        
-    def atualizar_estoque(self, isbn, decremento=1):
+    def salvar(self, entidade):
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("UPDATE livros SET exemplares_disponiveis = exemplares_disponiveis - ? WHERE isbn = ?", (decremento, isbn))
+            conn.execute("UPDATE livros SET exemplares_disponiveis = ? WHERE isbn = ?", 
+                         (entidade['exemplares_disponiveis'], entidade['isbn']))
             conn.commit()
+            return 1
 
-class RepositorioLeitorSQLite(IRepositorio):
-    def __init__(self, db_path):
+class RepositorioLeitor(IRepositorio):
+    """Responsável apenas por operações com leitores no BD"""
+    def __init__(self, db_path='biblioteca.db'):
         self.db_path = db_path
 
-    def buscar(self, cpf: str) -> dict:
+    def buscar(self, id):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
-            return conn.execute("SELECT * FROM leitores WHERE cpf = ?", (cpf,)).fetchone()
+            return conn.execute("SELECT * FROM leitores WHERE cpf = ?", (id,)).fetchone()
             
-    def salvar(self, entidade: dict) -> int:
+    def salvar(self, entidade):
         pass
 
-class RepositorioEmprestimoSQLite(IRepositorio):
-    def __init__(self, db_path):
+class RepositorioEmprestimo(IRepositorio):
+    """Responsável apenas por operações com empréstimos no BD"""
+    def __init__(self, db_path='biblioteca.db'):
         self.db_path = db_path
         
-    def buscar(self, emp_id: str) -> dict:
+    def buscar(self, id):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
-            return conn.execute("SELECT * FROM emprestimos WHERE id = ?", (emp_id,)).fetchone()
+            return conn.execute("SELECT * FROM emprestimos WHERE id = ?", (id,)).fetchone()
 
-    def salvar(self, entidade: dict) -> int:
+    def salvar(self, entidade):
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -85,21 +79,21 @@ class RepositorioEmprestimoSQLite(IRepositorio):
             conn.commit()
             return cursor.lastrowid
             
-    def registrar_devolucao(self, emp_id: int, data_devolucao: str):
+    def registrar_devolucao(self, emp_id, data_devolucao):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("UPDATE emprestimos SET data_devolucao = ? WHERE id = ?", (data_devolucao, emp_id))
             conn.commit()
 
-class RepositorioReservaSQLite(IRepositorio):
-    def __init__(self, db_path):
+class RepositorioReserva(IRepositorio):
+    def __init__(self, db_path='biblioteca.db'):
         self.db_path = db_path
         
-    def buscar(self, livro_isbn: str) -> dict:
+    def buscar(self, id): 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
-            return conn.execute("SELECT * FROM reservas WHERE livro_isbn = ? ORDER BY id ASC LIMIT 1", (livro_isbn,)).fetchone()
+            return conn.execute("SELECT * FROM reservas WHERE livro_isbn = ? ORDER BY id ASC LIMIT 1", (id,)).fetchone()
 
-    def salvar(self, entidade: dict) -> int:
+    def salvar(self, entidade):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO reservas (livro_isbn, leitor_cpf, data_reserva)
@@ -108,29 +102,27 @@ class RepositorioReservaSQLite(IRepositorio):
             conn.commit()
             return 1
             
-    def remover(self, reserva_id: int):
+    def remover(self, reserva_id):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM reservas WHERE id = ?", (reserva_id,))
             conn.commit()
 
-class RepositorioMultaSQLite(IRepositorio):
-    def __init__(self, db_path):
+class RepositorioMulta(IRepositorio):
+    def __init__(self, db_path='biblioteca.db'):
         self.db_path = db_path
         
-    def buscar(self, id: str) -> dict:
+    def buscar(self, id):
         pass
 
-    def salvar(self, entidade: dict) -> int:
+    def salvar(self, entidade):
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("INSERT INTO multas (emprestimo_id, valor) VALUES (?, ?)", (entidade['emprestimo_id'], entidade['valor']))
             conn.commit()
             return 1
 
-# ==========================================
-# SERVIÇOS REAIS (E-mail e PDF)
-# ==========================================
-class ServicoEmail(IServicoNotificacao):
-    def enviar(self, destinatario: str, assunto: str, mensagem: str):
+class ServicoNotificacao:
+    """Responsável apenas por enviar notificações"""
+    def enviar(self, destinatario, assunto, mensagem):
         try:
             msg = MIMEText(mensagem)
             msg['Subject'] = assunto
@@ -143,8 +135,9 @@ class ServicoEmail(IServicoNotificacao):
         except Exception:
             pass 
 
-class ServicoPdfReportLab(IServicoRelatorio):
-    def gerar_comprovante(self, dados: dict):
+class ServicoRelatorio:
+    """Responsável apenas por gerar relatórios"""
+    def gerar_comprovante(self, dados):
         try:
             c = canvas.Canvas(f"comprovante_{dados['emp_id']}.pdf")
             c.drawString(100, 750, f"Empréstimo #{dados['emp_id']}")
@@ -155,31 +148,41 @@ class ServicoPdfReportLab(IServicoRelatorio):
         except Exception:
             pass
 
+class CalculadoraMulta:
+    """Responsável apenas por calcular multas"""
+    TAXA_DIARIA = 2.0
+    
+    def calcular(self, data_prevista: datetime, data_real: datetime) -> float:
+        if data_real > data_prevista:
+            dias_atraso = (data_real - data_prevista).days
+            return dias_atraso * self.TAXA_DIARIA
+        return 0.0
+
 # ==========================================
 # DOMÍNIO (Classe Principal Refatorada)
 # ==========================================
 class GerenciadorEmprestimo:
-    """Orquestra o processo mantendo regras de negócio limpas e isoladas."""
+    """Orquestra o processo de empréstimo usando os serviços"""
     
     def __init__(
         self, 
-        db_path='biblioteca.db',
-        repo_livro=None,
-        repo_leitor=None,
-        repo_emprestimo=None,
-        repo_reserva=None,
-        repo_multa=None,
-        servico_notificacao=None,
-        servico_relatorio=None
+        repo_livro: RepositorioLivro = None,
+        repo_leitor: RepositorioLeitor = None,
+        repo_emprestimo: RepositorioEmprestimo = None,
+        servico_notificacao: ServicoNotificacao = None,
+        servico_relatorio: ServicoRelatorio = None,
+        calculadora_multa: CalculadoraMulta = None,
+        db_path: str = 'biblioteca.db'
     ):
         self.db_path = db_path
-        self.repo_livro = repo_livro or RepositorioLivroSQLite(db_path)
-        self.repo_leitor = repo_leitor or RepositorioLeitorSQLite(db_path)
-        self.repo_emprestimo = repo_emprestimo or RepositorioEmprestimoSQLite(db_path)
-        self.repo_reserva = repo_reserva or RepositorioReservaSQLite(db_path)
-        self.repo_multa = repo_multa or RepositorioMultaSQLite(db_path)
-        self.servico_notificacao = servico_notificacao or ServicoEmail()
-        self.servico_relatorio = servico_relatorio or ServicoPdfReportLab()
+        self.repo_livro = repo_livro or RepositorioLivro(db_path)
+        self.repo_leitor = repo_leitor or RepositorioLeitor(db_path)
+        self.repo_emprestimo = repo_emprestimo or RepositorioEmprestimo(db_path)
+        self.repo_reserva = RepositorioReserva(db_path)
+        self.repo_multa = RepositorioMulta(db_path)
+        self.servico_notificacao = servico_notificacao or ServicoNotificacao()
+        self.servico_relatorio = servico_relatorio or ServicoRelatorio()
+        self.calculadora_multa = calculadora_multa or CalculadoraMulta()
     
     def realizar_emprestimo(self, livro_isbn, leitor_cpf):
         livro = self.repo_livro.buscar(livro_isbn)
@@ -201,7 +204,9 @@ class GerenciadorEmprestimo:
             }
             
             emp_id = self.repo_emprestimo.salvar(entidade_emp)
-            self.repo_livro.atualizar_estoque(livro_isbn, decremento=1)
+            
+            livro['exemplares_disponiveis'] -= 1
+            self.repo_livro.salvar(livro)
             
             self.servico_notificacao.enviar(
                 destinatario=leitor['email'], 
@@ -232,6 +237,7 @@ class GerenciadorEmprestimo:
 
         data_atual = datetime.now()
         self.repo_emprestimo.registrar_devolucao(emprestimo_id, data_atual.strftime('%Y-%m-%d'))
+        
         self.calcular_multa(emprestimo_id)
 
         reserva = self.repo_reserva.buscar(emprestimo['livro_isbn'])
@@ -245,7 +251,10 @@ class GerenciadorEmprestimo:
                 )
             self.repo_reserva.remover(reserva['id'])
         else:
-            self.repo_livro.atualizar_estoque(emprestimo['livro_isbn'], decremento=-1)
+            livro = self.repo_livro.buscar(emprestimo['livro_isbn'])
+            if livro:
+                livro['exemplares_disponiveis'] += 1
+                self.repo_livro.salvar(livro)
             
         return True, "Devolução processada"
 
@@ -254,22 +263,19 @@ class GerenciadorEmprestimo:
         if not emprestimo:
             return 0
             
-        data_devolucao_prevista = datetime.strptime(emprestimo['data_devolucao_prevista'], '%Y-%m-%d')
+        data_prevista = datetime.strptime(emprestimo['data_devolucao_prevista'], '%Y-%m-%d')
         data_base = datetime.strptime(emprestimo['data_devolucao'], '%Y-%m-%d') if emprestimo.get('data_devolucao') else datetime.now()
         
-        if data_base > data_devolucao_prevista:
-            dias_atraso = (data_base - data_devolucao_prevista).days
-            multa = dias_atraso * 2.0
-            
-            self.repo_multa.salvar({'emprestimo_id': emprestimo_id, 'valor': multa})
+        multa_valor = self.calculadora_multa.calcular(data_prevista, data_base)
+        
+        if multa_valor > 0:
+            self.repo_multa.salvar({'emprestimo_id': emprestimo_id, 'valor': multa_valor})
             
             leitor = self.repo_leitor.buscar(emprestimo['leitor_cpf'])
             if leitor:
                 self.servico_notificacao.enviar(
                     destinatario=leitor['email'],
                     assunto='Multa por Atraso',
-                    mensagem=f"Multa de R$ {multa:.2f} aplicada"
+                    mensagem=f"Multa de R$ {multa_valor:.2f} aplicada"
                 )
-            return multa
-            
-        return 0
+        return multa_valor
