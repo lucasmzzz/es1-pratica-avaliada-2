@@ -1,106 +1,164 @@
-from abc import ABC, abstractmethod
+import sqlite3
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta
-from typing import Tuple, Optional
+from reportlab.pdfgen import canvas
+from abc import ABC, abstractmethod
 
 # ==========================================
 # INTERFACES (Contratos)
 # ==========================================
 class IRepositorio(ABC):
     @abstractmethod
-    def buscar(self, id: str) -> Optional[dict]:
+    def buscar(self, identificador):
         pass
     
     @abstractmethod
-    def salvar(self, entidade: dict) -> int:
+    def salvar(self, *args, **kwargs):
         pass
 
-# ==========================================
-# REPOSITÓRIOS (Infraestrutura)
-# ==========================================
-class RepositorioLivro(IRepositorio):
-    def buscar(self, isbn: str) -> Optional[dict]:
-        pass
-        
-    def salvar(self, entidade: dict) -> int:
-        pass
-
-class RepositorioLeitor(IRepositorio):
-    def buscar(self, cpf: str) -> Optional[dict]:
-        pass
-        
-    def salvar(self, entidade: dict) -> int:
-        pass
-
-class RepositorioEmprestimo(IRepositorio):
-    def buscar(self, id: str) -> Optional[dict]:
-        pass
-        
-    def salvar(self, entidade: dict) -> int:
-        return 1 
-
-class RepositorioReserva(IRepositorio):
-    def buscar(self, id: str) -> Optional[dict]:
-        pass
-        
-    def salvar(self, entidade: dict) -> int:
-        return 1
-
-# ==========================================
-# SERVIÇOS AUXILIARES
-# ==========================================
-class ServicoNotificacao(ABC):
+class IServicoNotificacao(ABC):
     @abstractmethod
-    def enviar(self, destinatario: str, assunto: str, mensagem: str):
+    def enviar(self, destinatario, assunto, mensagem):
         pass
 
-class EmailNotificacao(ServicoNotificacao):
-    def enviar(self, destinatario: str, assunto: str, mensagem: str):
-        pass
-
-class ServicoRelatorio(ABC):
+class IServicoRelatorio(ABC):
     @abstractmethod
-    def gerar_comprovante(self, dados: dict):
+    def gerar_comprovante(self, emp_id, livro_titulo, leitor_nome, data_dev):
         pass
-
-class PdfRelatorio(ServicoRelatorio):
-    def gerar_comprovante(self, dados: dict):
-        pass
-
-class CalculadoraMulta:
-    TAXA_DIARIA = 2.0
-    
-    def calcular(self, data_prevista: datetime, data_real: datetime) -> float:
-        if data_real > data_prevista:
-            dias_atraso = (data_real - data_prevista).days
-            return dias_atraso * self.TAXA_DIARIA
-        return 0.0
 
 # ==========================================
-# DOMÍNIO (Caso de Uso Refatorado)
+# REPOSITÓRIOS SQLITE (Infraestrutura)
+# ==========================================
+class RepositorioLivroSQLite(IRepositorio):
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def buscar(self, isbn):
+        with sqlite3.connect(self.db_path) as conn:
+            return conn.execute("SELECT * FROM livros WHERE isbn = ?", (isbn,)).fetchone()
+            
+    def salvar(self):
+        pass 
+        
+    def atualizar_estoque(self, isbn, decremento=1):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE livros SET exemplares_disponiveis = exemplares_disponiveis - ? WHERE isbn = ?", (decremento, isbn))
+            conn.commit()
+
+class RepositorioLeitorSQLite(IRepositorio):
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def buscar(self, cpf):
+        with sqlite3.connect(self.db_path) as conn:
+            return conn.execute("SELECT * FROM leitores WHERE cpf = ?", (cpf,)).fetchone()
+            
+    def salvar(self):
+        pass
+
+class RepositorioEmprestimoSQLite(IRepositorio):
+    def __init__(self, db_path):
+        self.db_path = db_path
+        
+    def buscar(self, emp_id):
+        with sqlite3.connect(self.db_path) as conn:
+            return conn.execute("SELECT * FROM emprestimos WHERE id = ?", (emp_id,)).fetchone()
+
+    def salvar(self, livro_isbn, leitor_cpf, data_emp, data_dev):
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO emprestimos (livro_isbn, leitor_cpf, data_emprestimo, data_devolucao_prevista)
+                VALUES (?, ?, ?, ?)
+            """, (livro_isbn, leitor_cpf, data_emp, data_dev))
+            conn.commit()
+            return cursor.lastrowid
+
+class RepositorioReservaSQLite(IRepositorio):
+    def __init__(self, db_path):
+        self.db_path = db_path
+        
+    def buscar(self, id):
+        pass
+
+    def salvar(self, livro_isbn, leitor_cpf, data_reserva):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO reservas (livro_isbn, leitor_cpf, data_reserva)
+                VALUES (?, ?, ?)
+            """, (livro_isbn, leitor_cpf, data_reserva))
+            conn.commit()
+
+class RepositorioMultaSQLite(IRepositorio):
+    def __init__(self, db_path):
+        self.db_path = db_path
+        
+    def buscar(self, id):
+        pass
+
+    def salvar(self, emprestimo_id, valor):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("INSERT INTO multas (emprestimo_id, valor) VALUES (?, ?)", (emprestimo_id, valor))
+            conn.commit()
+
+# ==========================================
+# SERVIÇOS REAIS (E-mail e PDF)
+# ==========================================
+class ServicoEmail(IServicoNotificacao):
+    def enviar(self, destinatario, assunto, mensagem):
+        try:
+            msg = MIMEText(mensagem)
+            msg['Subject'] = assunto
+            msg['To'] = destinatario
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            server.login('biblioteca@exemplo.com', 'senha')
+            server.send_message(msg)
+            server.quit()
+        except:
+            pass 
+
+class ServicoPdfReportLab(IServicoRelatorio):
+    def gerar_comprovante(self, emp_id, livro_titulo, leitor_nome, data_dev):
+        try:
+            c = canvas.Canvas(f'comprovante_{emp_id}.pdf')
+            c.drawString(100, 750, f'Empréstimo #{emp_id}')
+            c.drawString(100, 730, f'Livro: {livro_titulo}')
+            c.drawString(100, 710, f'Leitor: {leitor_nome}')
+            c.drawString(100, 690, f'Devolução: {data_dev}')
+            c.save()
+        except:
+            pass
+
+# ==========================================
+# DOMÍNIO (Classe Principal Refatorada)
 # ==========================================
 class GerenciadorEmprestimo:
-    """Orquestra o processo de empréstimo usando abstrações (DIP)."""
+    """Orquestra o processo de empréstimo respeitando o SOLID."""
     
     def __init__(
         self, 
-        repo_livro: RepositorioLivro,
-        repo_leitor: RepositorioLeitor,
-        repo_emprestimo: RepositorioEmprestimo,
-        repo_reserva: RepositorioReserva,
-        servico_notificacao: ServicoNotificacao,
-        servico_relatorio: ServicoRelatorio,
-        calculadora_multa: CalculadoraMulta
+        db_path='biblioteca.db',
+        repo_livro=None,
+        repo_leitor=None,
+        repo_emprestimo=None,
+        repo_reserva=None,
+        repo_multa=None,
+        servico_notificacao=None,
+        servico_relatorio=None
     ):
-        self.repo_livro = repo_livro
-        self.repo_leitor = repo_leitor
-        self.repo_emprestimo = repo_emprestimo
-        self.repo_reserva = repo_reserva
-        self.servico_notificacao = servico_notificacao
-        self.servico_relatorio = servico_relatorio
-        self.calculadora_multa = calculadora_multa
+        self.db_path = db_path
+        self.repo_livro = repo_livro or RepositorioLivroSQLite(db_path)
+        self.repo_leitor = repo_leitor or RepositorioLeitorSQLite(db_path)
+        self.repo_emprestimo = repo_emprestimo or RepositorioEmprestimoSQLite(db_path)
+        self.repo_reserva = repo_reserva or RepositorioReservaSQLite(db_path)
+        self.repo_multa = repo_multa or RepositorioMultaSQLite(db_path)
+        
+        self.servico_notificacao = servico_notificacao or ServicoEmail()
+        self.servico_relatorio = servico_relatorio or ServicoPdfReportLab()
     
-    def realizar_emprestimo(self, livro_isbn: str, leitor_cpf: str) -> Tuple[bool, str]:
-        # 1. Validações via Repositórios
+    def realizar_emprestimo(self, livro_isbn, leitor_cpf):
         livro = self.repo_livro.buscar(livro_isbn)
         if not livro:
             return False, "Livro não encontrado"
@@ -109,42 +167,50 @@ class GerenciadorEmprestimo:
         if not leitor:
             return False, "Leitor não encontrado"
             
-        # 2. Regra de Negócio: Reserva vs Empréstimo
-        if livro.get('exemplares_disponiveis', 0) <= 0:
-            reserva = {
-                'livro_isbn': livro_isbn,
-                'leitor_cpf': leitor_cpf,
-                'data_reserva': datetime.now().strftime('%Y-%m-%d')
-            }
-            self.repo_reserva.salvar(reserva)
-            return False, "Livro indisponível. Reserva criada."
+        exemplares_disponiveis = livro[4]
+        
+        if exemplares_disponiveis > 0:
+            data_atual = datetime.now()
+            data_emp = data_atual.strftime('%Y-%m-%d')
+            data_dev = (data_atual + timedelta(days=14)).strftime('%Y-%m-%d')
             
-        # 3. Execução do Empréstimo
-        data_atual = datetime.now()
-        emprestimo = {
-            'livro_isbn': livro_isbn,
-            'leitor_cpf': leitor_cpf,
-            'data_emprestimo': data_atual.strftime('%Y-%m-%d'),
-            'data_devolucao_prevista': (data_atual + timedelta(days=14)).strftime('%Y-%m-%d')
-        }
+            emp_id = self.repo_emprestimo.salvar(livro_isbn, leitor_cpf, data_emp, data_dev)
+            self.repo_livro.atualizar_estoque(livro_isbn)
+            
+            self.servico_notificacao.enviar(
+                destinatario=leitor[2], 
+                assunto='Empréstimo Realizado', 
+                mensagem=f"Empréstimo realizado: {livro[1]}"
+            )
+            
+            self.servico_relatorio.gerar_comprovante(emp_id, livro[1], leitor[1], data_dev)
+            return True, "Empréstimo realizado com sucesso"
+            
+        else:
+            data_reserva = datetime.now().strftime('%Y-%m-%d')
+            self.repo_reserva.salvar(livro_isbn, leitor_cpf, data_reserva)
+            return False, "Livro indisponível. Reserva criada."
+
+    def calcular_multa(self, emprestimo_id):
+        emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
+        if not emprestimo:
+            return 0
+            
+        data_devolucao_prevista = datetime.strptime(emprestimo[4], '%Y-%m-%d')
         
-        emprestimo_id = self.repo_emprestimo.salvar(emprestimo)
-        
-        livro['exemplares_disponiveis'] -= 1
-        self.repo_livro.salvar(livro)
-        
-        # 4. Acionamento de Serviços (Side-effects isolados)
-        self.servico_notificacao.enviar(
-            destinatario=leitor.get('email'),
-            assunto="Empréstimo Realizado",
-            mensagem=f"Empréstimo realizado: {livro.get('titulo')}"
-        )
-        
-        self.servico_relatorio.gerar_comprovante({
-            'id': emprestimo_id,
-            'livro': livro.get('titulo'),
-            'leitor': leitor.get('nome'),
-            'devolucao': emprestimo['data_devolucao_prevista']
-        })
-        
-        return True, "Empréstimo realizado com sucesso"
+        if datetime.now() > data_devolucao_prevista:
+            dias_atraso = (datetime.now() - data_devolucao_prevista).days
+            multa = dias_atraso * 2.0
+            
+            self.repo_multa.salvar(emprestimo_id, multa)
+            
+            leitor = self.repo_leitor.buscar(emprestimo[2])
+            if leitor:
+                self.servico_notificacao.enviar(
+                    destinatario=leitor[2],
+                    assunto='Multa por Atraso',
+                    mensagem=f"Multa de R$ {multa:.2f} aplicada"
+                )
+            return multa
+            
+        return 0
