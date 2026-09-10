@@ -139,7 +139,7 @@ class ServicoNotificacao(IServicoNotificacao):
             msg = MIMEText(mensagem)
             msg['Subject'] = assunto
             msg['To'] = destinatario
-            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=3)
             server.starttls()
             server.login('biblioteca@exemplo.com', 'senha')
             server.send_message(msg)

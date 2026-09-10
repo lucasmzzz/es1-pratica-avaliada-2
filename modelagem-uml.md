@@ -84,12 +84,12 @@ sequenceDiagram
     
     S->>L: buscar(cpf)
     activate L
-    L-->>S: leitor_dados
+    L-->>S: leitor_dados (Verificação de cadastro)
     deactivate L
     
     S->>V: buscar(isbn)
     activate V
-    V-->>S: livro_dados
+    V-->>S: livro_dados (Verificação de disponibilidade)
     deactivate V
     
     alt Exemplares > 0
@@ -98,7 +98,7 @@ sequenceDiagram
         E-->>S: emp_id
         deactivate E
         S->>V: salvar(livro_atualizado)
-        S-->>B: True, "Empréstimo realizado"
+        S-->>B: True, "Empréstimo realizado com sucesso"
     else Exemplares <= 0
         S-->>B: False, "Livro indisponível. Reserva criada."
     end
