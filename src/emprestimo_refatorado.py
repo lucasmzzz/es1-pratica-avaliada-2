@@ -10,35 +10,42 @@ from abc import ABC, abstractmethod
 # ==========================================
 class IRepositorio(ABC):
     @abstractmethod
-    def buscar(self, identificador):
+    def buscar(self, identificador: str) -> dict:
         pass
     
     @abstractmethod
-    def salvar(self, *args, **kwargs):
+    def salvar(self, entidade: dict) -> int:
         pass
 
 class IServicoNotificacao(ABC):
     @abstractmethod
-    def enviar(self, destinatario, assunto, mensagem):
+    def enviar(self, destinatario: str, assunto: str, mensagem: str):
         pass
 
 class IServicoRelatorio(ABC):
     @abstractmethod
-    def gerar_comprovante(self, emp_id, livro_titulo, leitor_nome, data_dev):
+    def gerar_comprovante(self, dados: dict):
         pass
 
 # ==========================================
 # REPOSITÓRIOS SQLITE (Infraestrutura)
 # ==========================================
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description):
+        d[col[0]] = row[idx]
+    return d
+
 class RepositorioLivroSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
 
-    def buscar(self, isbn):
+    def buscar(self, isbn) -> dict:
         with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM livros WHERE isbn = ?", (isbn,)).fetchone()
             
-    def salvar(self):
+    def salvar(self, entidade: dict) -> int:
         pass 
         
     def atualizar_estoque(self, isbn, decremento=1):
@@ -50,63 +57,79 @@ class RepositorioLeitorSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
 
-    def buscar(self, cpf):
+    def buscar(self, cpf) -> dict:
         with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM leitores WHERE cpf = ?", (cpf,)).fetchone()
             
-    def salvar(self):
+    def salvar(self, entidade: dict) -> int:
         pass
 
 class RepositorioEmprestimoSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, emp_id):
+    def buscar(self, emp_id) -> dict:
         with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM emprestimos WHERE id = ?", (emp_id,)).fetchone()
 
-    def salvar(self, livro_isbn, leitor_cpf, data_emp, data_dev):
+    def salvar(self, entidade: dict) -> int:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO emprestimos (livro_isbn, leitor_cpf, data_emprestimo, data_devolucao_prevista)
                 VALUES (?, ?, ?, ?)
-            """, (livro_isbn, leitor_cpf, data_emp, data_dev))
+            """, (entidade['livro_isbn'], entidade['leitor_cpf'], entidade['data_emprestimo'], entidade['data_devolucao_prevista']))
             conn.commit()
             return cursor.lastrowid
+            
+    def registrar_devolucao(self, emp_id: int, data_devolucao: str):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("UPDATE emprestimos SET data_devolucao = ? WHERE id = ?", (data_devolucao, emp_id))
+            conn.commit()
 
 class RepositorioReservaSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, id):
-        pass
+    def buscar(self, livro_isbn) -> dict:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = dict_factory
+            return conn.execute("SELECT * FROM reservas WHERE livro_isbn = ? ORDER BY id ASC LIMIT 1", (livro_isbn,)).fetchone()
 
-    def salvar(self, livro_isbn, leitor_cpf, data_reserva):
+    def salvar(self, entidade: dict) -> int:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT INTO reservas (livro_isbn, leitor_cpf, data_reserva)
                 VALUES (?, ?, ?)
-            """, (livro_isbn, leitor_cpf, data_reserva))
+            """, (entidade['livro_isbn'], entidade['leitor_cpf'], entidade['data_reserva']))
+            conn.commit()
+            return 1
+            
+    def remover(self, reserva_id: int):
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM reservas WHERE id = ?", (reserva_id,))
             conn.commit()
 
 class RepositorioMultaSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, id):
+    def buscar(self, id) -> dict:
         pass
 
-    def salvar(self, emprestimo_id, valor):
+    def salvar(self, entidade: dict) -> int:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute("INSERT INTO multas (emprestimo_id, valor) VALUES (?, ?)", (emprestimo_id, valor))
+            conn.execute("INSERT INTO multas (emprestimo_id, valor) VALUES (?, ?)", (entidade['emprestimo_id'], entidade['valor']))
             conn.commit()
+            return 1
 
 # ==========================================
 # SERVIÇOS REAIS (E-mail e PDF)
 # ==========================================
 class ServicoEmail(IServicoNotificacao):
-    def enviar(self, destinatario, assunto, mensagem):
+    def enviar(self, destinatario: str, assunto: str, mensagem: str):
         try:
             msg = MIMEText(mensagem)
             msg['Subject'] = assunto
@@ -116,26 +139,26 @@ class ServicoEmail(IServicoNotificacao):
             server.login('biblioteca@exemplo.com', 'senha')
             server.send_message(msg)
             server.quit()
-        except:
+        except Exception:
             pass 
 
 class ServicoPdfReportLab(IServicoRelatorio):
-    def gerar_comprovante(self, emp_id, livro_titulo, leitor_nome, data_dev):
+    def gerar_comprovante(self, dados: dict):
         try:
-            c = canvas.Canvas(f'comprovante_{emp_id}.pdf')
-            c.drawString(100, 750, f'Empréstimo #{emp_id}')
-            c.drawString(100, 730, f'Livro: {livro_titulo}')
-            c.drawString(100, 710, f'Leitor: {leitor_nome}')
-            c.drawString(100, 690, f'Devolução: {data_dev}')
+            c = canvas.Canvas(f"comprovante_{dados['emp_id']}.pdf")
+            c.drawString(100, 750, f"Empréstimo #{dados['emp_id']}")
+            c.drawString(100, 730, f"Livro: {dados['livro_titulo']}")
+            c.drawString(100, 710, f"Leitor: {dados['leitor_nome']}")
+            c.drawString(100, 690, f"Devolução: {dados['data_dev']}")
             c.save()
-        except:
+        except Exception:
             pass
 
 # ==========================================
 # DOMÍNIO (Classe Principal Refatorada)
 # ==========================================
 class GerenciadorEmprestimo:
-    """Orquestra o processo de empréstimo respeitando o SOLID."""
+    """Orquestra o processo respeitando o SOLID e retornando dicionários."""
     
     def __init__(
         self, 
@@ -154,7 +177,6 @@ class GerenciadorEmprestimo:
         self.repo_emprestimo = repo_emprestimo or RepositorioEmprestimoSQLite(db_path)
         self.repo_reserva = repo_reserva or RepositorioReservaSQLite(db_path)
         self.repo_multa = repo_multa or RepositorioMultaSQLite(db_path)
-        
         self.servico_notificacao = servico_notificacao or ServicoEmail()
         self.servico_relatorio = servico_relatorio or ServicoPdfReportLab()
     
@@ -167,47 +189,84 @@ class GerenciadorEmprestimo:
         if not leitor:
             return False, "Leitor não encontrado"
             
-        exemplares_disponiveis = livro[4]
-        
-        if exemplares_disponiveis > 0:
+        if livro['exemplares_disponiveis'] > 0:
             data_atual = datetime.now()
-            data_emp = data_atual.strftime('%Y-%m-%d')
-            data_dev = (data_atual + timedelta(days=14)).strftime('%Y-%m-%d')
             
-            emp_id = self.repo_emprestimo.salvar(livro_isbn, leitor_cpf, data_emp, data_dev)
-            self.repo_livro.atualizar_estoque(livro_isbn)
+            entidade_emp = {
+                'livro_isbn': livro_isbn,
+                'leitor_cpf': leitor_cpf,
+                'data_emprestimo': data_atual.strftime('%Y-%m-%d'),
+                'data_devolucao_prevista': (data_atual + timedelta(days=14)).strftime('%Y-%m-%d')
+            }
+            
+            emp_id = self.repo_emprestimo.salvar(entidade_emp)
+            self.repo_livro.atualizar_estoque(livro_isbn, decremento=1)
             
             self.servico_notificacao.enviar(
-                destinatario=leitor[2], 
+                destinatario=leitor['email'], 
                 assunto='Empréstimo Realizado', 
-                mensagem=f"Empréstimo realizado: {livro[1]}"
+                mensagem=f"Empréstimo realizado: {livro['titulo']}"
             )
             
-            self.servico_relatorio.gerar_comprovante(emp_id, livro[1], leitor[1], data_dev)
+            self.servico_relatorio.gerar_comprovante({
+                'emp_id': emp_id,
+                'livro_titulo': livro['titulo'],
+                'leitor_nome': leitor['nome'],
+                'data_dev': entidade_emp['data_devolucao_prevista']
+            })
             return True, "Empréstimo realizado com sucesso"
             
         else:
-            data_reserva = datetime.now().strftime('%Y-%m-%d')
-            self.repo_reserva.salvar(livro_isbn, leitor_cpf, data_reserva)
+            self.repo_reserva.salvar({
+                'livro_isbn': livro_isbn,
+                'leitor_cpf': leitor_cpf,
+                'data_reserva': datetime.now().strftime('%Y-%m-%d')
+            })
             return False, "Livro indisponível. Reserva criada."
+
+    def processar_devolucao(self, emprestimo_id):
+        """Nova funcionalidade: Devolve o livro, cobra multa se houver e checa fila FIFO."""
+        emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
+        if not emprestimo or emprestimo.get('data_devolucao'):
+            return False, "Empréstimo inválido ou já devolvido"
+
+        data_atual = datetime.now()
+        self.repo_emprestimo.registrar_devolucao(emprestimo_id, data_atual.strftime('%Y-%m-%d'))
+        self.calcular_multa(emprestimo_id)
+
+        reserva = self.repo_reserva.buscar(emprestimo['livro_isbn'])
+        if reserva:
+            leitor_reserva = self.repo_leitor.buscar(reserva['leitor_cpf'])
+            if leitor_reserva:
+                self.servico_notificacao.enviar(
+                    destinatario=leitor_reserva['email'],
+                    assunto='Seu livro chegou!',
+                    mensagem='O livro que você reservou já está disponível.'
+                )
+            self.repo_reserva.remover(reserva['id'])
+        else:
+            self.repo_livro.atualizar_estoque(emprestimo['livro_isbn'], decremento=-1)
+            
+        return True, "Devolução processada"
 
     def calcular_multa(self, emprestimo_id):
         emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
         if not emprestimo:
             return 0
             
-        data_devolucao_prevista = datetime.strptime(emprestimo[4], '%Y-%m-%d')
+        data_devolucao_prevista = datetime.strptime(emprestimo['data_devolucao_prevista'], '%Y-%m-%d')
+        data_base = datetime.strptime(emprestimo['data_devolucao'], '%Y-%m-%d') if emprestimo.get('data_devolucao') else datetime.now()
         
-        if datetime.now() > data_devolucao_prevista:
-            dias_atraso = (datetime.now() - data_devolucao_prevista).days
+        if data_base > data_devolucao_prevista:
+            dias_atraso = (data_base - data_devolucao_prevista).days
             multa = dias_atraso * 2.0
             
-            self.repo_multa.salvar(emprestimo_id, multa)
+            self.repo_multa.salvar({'emprestimo_id': emprestimo_id, 'valor': multa})
             
-            leitor = self.repo_leitor.buscar(emprestimo[2])
+            leitor = self.repo_leitor.buscar(emprestimo['leitor_cpf'])
             if leitor:
                 self.servico_notificacao.enviar(
-                    destinatario=leitor[2],
+                    destinatario=leitor['email'],
                     assunto='Multa por Atraso',
                     mensagem=f"Multa de R$ {multa:.2f} aplicada"
                 )
