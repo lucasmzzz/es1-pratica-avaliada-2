@@ -32,6 +32,11 @@ class IRepositorioReserva(IRepositorio):
     def remover(self, reserva_id: int) -> None:
         pass
 
+class IRepositorioMulta(IRepositorio):
+    @abstractmethod
+    def tem_multas_pendentes(self, leitor_cpf: str) -> bool:
+        pass
+
 class IServicoNotificacao(ABC):
     @abstractmethod
     def enviar(self, destinatario: str, assunto: str, mensagem: str) -> None:
@@ -147,7 +152,7 @@ class RepositorioReserva(IRepositorioReserva):
             conn.execute("DELETE FROM reservas WHERE id = ?", (reserva_id,))
             conn.commit()
 
-class RepositorioMulta(IRepositorio):
+class RepositorioMulta(IRepositorioMulta):
     def __init__(self, db_path: str = 'biblioteca.db'):
         self.db_path = db_path
         
@@ -161,6 +166,16 @@ class RepositorioMulta(IRepositorio):
             conn.execute("INSERT INTO multas (emprestimo_id, valor) VALUES (?, ?)", (entidade['emprestimo_id'], entidade['valor']))
             conn.commit()
             return 1
+
+    def tem_multas_pendentes(self, leitor_cpf: str) -> bool:
+        """Encapsula a query de adimplência na infraestrutura, respeitando a Lei de Demeter."""
+        with sqlite3.connect(self.db_path) as conn:
+            multas = conn.execute("""
+                SELECT m.id FROM multas m
+                JOIN emprestimos e ON m.emprestimo_id = e.id
+                WHERE e.leitor_cpf = ? AND m.paga = 0
+            """, (leitor_cpf,)).fetchall()
+            return len(multas) > 0
 
 class ServicoNotificacao(IServicoNotificacao):
     def enviar(self, destinatario: str, assunto: str, mensagem: str) -> None:
@@ -206,7 +221,7 @@ class GerenciadorEmprestimo:
         repo_leitor: IRepositorio,
         repo_emprestimo: IRepositorioEmprestimo,
         repo_reserva: IRepositorioReserva,
-        repo_multa: IRepositorio,
+        repo_multa: IRepositorioMulta,
         servico_notificacao: IServicoNotificacao,
         servico_relatorio: IServicoRelatorio,
         calculadora_multa: ICalculadoraMulta
@@ -220,17 +235,6 @@ class GerenciadorEmprestimo:
         self.servico_relatorio = servico_relatorio
         self.calculadora_multa = calculadora_multa
     
-    def _verificar_adimplencia(self, leitor_cpf: str) -> bool:
-        """Regra de Negócio: Impede empréstimo se houver multas/pendências não quitadas."""
-        with sqlite3.connect(self.repo_multa.db_path if hasattr(self.repo_multa, 'db_path') else 'biblioteca.db') as conn:
-            conn.row_factory = dict_factory
-            multas = conn.execute("""
-                SELECT m.id FROM multas m
-                JOIN emprestimos e ON m.emprestimo_id = e.id
-                WHERE e.leitor_cpf = ? AND m.paga = 0
-            """, (leitor_cpf,)).fetchall()
-            return len(multas) == 0
-
     def realizar_emprestimo(self, livro_isbn: str, leitor_cpf: str) -> Tuple[bool, str]:
         livro = self.repo_livro.buscar(livro_isbn)
         if not livro:
@@ -240,7 +244,7 @@ class GerenciadorEmprestimo:
         if not leitor:
             return False, "Leitor não encontrado"
             
-        if not self._verificar_adimplencia(leitor_cpf):
+        if self.repo_multa.tem_multas_pendentes(leitor_cpf):
             return False, "Empréstimo negado: Leitor possui multas pendentes"
             
         if livro['exemplares_disponiveis'] > 0:
@@ -308,14 +312,9 @@ class GerenciadorEmprestimo:
         return True, "Devolução processada"
 
     def calcular_multa(self, emprestimo_id: int) -> float:
-        """
-        Correção do Bug Crítico: Se o empréstimo já possui data_devolucao registrada,
-        utiliza obrigatoriamente essa data real de entrega em vez de datetime.now().
-        """
         emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
         if not emprestimo:
             return 0.0
-            
         data_real_str = emprestimo.get('data_devolucao') or datetime.now().strftime('%Y-%m-%d')
         return self.calcular_multa_com_data(emprestimo, data_real_str)
 
