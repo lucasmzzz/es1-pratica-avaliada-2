@@ -9,9 +9,15 @@ classDiagram
         -String titulo
         -String autor
         -String categoria
-        -int exemplares_disponiveis
         +cadastrarLivro()
         +verificarDisponibilidade() bool
+    }
+    
+    class Exemplar {
+        -int numero_patrimonio
+        -String status
+        +emprestar()
+        +devolver()
     }
     
     class Leitor {
@@ -57,7 +63,8 @@ classDiagram
     Bibliotecario "1" --> "*" Emprestimo : gerencia
     Leitor "1" --> "*" Emprestimo : realiza
     Leitor "1" --> "*" Reserva : solicita
-    Livro "1" --> "*" Emprestimo : possui
+    Livro "1" --> "*" Exemplar : possui
+    Exemplar "1" --> "0..1" Emprestimo : alocado em
     Livro "1" --> "*" Reserva : possui
     Emprestimo "1" --> "0..1" Multa : gera
 ```
@@ -94,20 +101,18 @@ sequenceDiagram
 ## C. Diagrama de Atividades: Devolução e Reservas
 
 ```mermaid
-stateDiagram-v2
-    [*] --> IniciarDevolucao
-    IniciarDevolucao --> RegistrarData
-    RegistrarData --> VerificarAtraso
+flowchart TD
+    A([Iniciar Devolução]) --> B[Registrar data de devolução]
+    B --> C{Entregue com atraso?}
     
-    VerificarAtraso --> CalcularMulta : Atrasado (data_atual > data_prevista)
-    CalcularMulta --> VerificarReservas
-    VerificarAtraso --> VerificarReservas : No Prazo
+    C -- Sim --> D[Calcular Multa]
+    D --> E{Existem reservas pendentes?}
     
-    VerificarReservas --> NotificarLeitor : Fila > 0
-    NotificarLeitor --> Finalizar
+    C -- Não --> E
     
-    VerificarReservas --> IncrementarAcervo : Fila == 0
-    IncrementarAcervo --> Finalizar
+    E -- Sim --> F[Notificar o primeiro leitor da fila]
+    F --> G([Finalizar com Notificação])
     
-    Finalizar --> [*]
+    E -- Não --> H[Incrementar estoque do livro]
+    H --> I([Finalizar Padrão])
 ```
