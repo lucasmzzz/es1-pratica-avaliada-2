@@ -152,7 +152,9 @@ class RepositorioMulta(IRepositorio):
         self.db_path = db_path
         
     def buscar(self, id: str) -> Optional[dict]:
-        return None
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = dict_factory
+            return conn.execute("SELECT * FROM multas WHERE emprestimo_id = ?", (id,)).fetchone()
 
     def salvar(self, entidade: dict) -> int:
         with sqlite3.connect(self.db_path) as conn:
@@ -218,6 +220,17 @@ class GerenciadorEmprestimo:
         self.servico_relatorio = servico_relatorio
         self.calculadora_multa = calculadora_multa
     
+    def _verificar_adimplencia(self, leitor_cpf: str) -> bool:
+        """Regra de Negócio: Impede empréstimo se houver multas/pendências não quitadas."""
+        with sqlite3.connect(self.repo_multa.db_path if hasattr(self.repo_multa, 'db_path') else 'biblioteca.db') as conn:
+            conn.row_factory = dict_factory
+            multas = conn.execute("""
+                SELECT m.id FROM multas m
+                JOIN emprestimos e ON m.emprestimo_id = e.id
+                WHERE e.leitor_cpf = ? AND m.paga = 0
+            """, (leitor_cpf,)).fetchall()
+            return len(multas) == 0
+
     def realizar_emprestimo(self, livro_isbn: str, leitor_cpf: str) -> Tuple[bool, str]:
         livro = self.repo_livro.buscar(livro_isbn)
         if not livro:
@@ -226,6 +239,9 @@ class GerenciadorEmprestimo:
         leitor = self.repo_leitor.buscar(leitor_cpf)
         if not leitor:
             return False, "Leitor não encontrado"
+            
+        if not self._verificar_adimplencia(leitor_cpf):
+            return False, "Empréstimo negado: Leitor possui multas pendentes"
             
         if livro['exemplares_disponiveis'] > 0:
             data_atual = datetime.now()
@@ -270,6 +286,7 @@ class GerenciadorEmprestimo:
         data_atual_str = datetime.now().strftime('%Y-%m-%d')
         self.repo_emprestimo.registrar_devolucao(emprestimo_id, data_atual_str)
         
+        emprestimo['data_devolucao'] = data_atual_str
         self.calcular_multa_com_data(emprestimo, data_atual_str)
 
         reserva = self.repo_reserva.buscar_primeira_da_fila(emprestimo['livro_isbn'])
@@ -291,11 +308,16 @@ class GerenciadorEmprestimo:
         return True, "Devolução processada"
 
     def calcular_multa(self, emprestimo_id: int) -> float:
+        """
+        Correção do Bug Crítico: Se o empréstimo já possui data_devolucao registrada,
+        utiliza obrigatoriamente essa data real de entrega em vez de datetime.now().
+        """
         emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
         if not emprestimo:
             return 0.0
-        data_atual_str = datetime.now().strftime('%Y-%m-%d')
-        return self.calcular_multa_com_data(emprestimo, data_atual_str)
+            
+        data_real_str = emprestimo.get('data_devolucao') or datetime.now().strftime('%Y-%m-%d')
+        return self.calcular_multa_com_data(emprestimo, data_real_str)
 
     def calcular_multa_com_data(self, emprestimo: dict, data_real_str: str) -> float:
         data_prevista = datetime.strptime(emprestimo['data_devolucao_prevista'], '%Y-%m-%d')

@@ -77,7 +77,7 @@ sequenceDiagram
     
     S->>L: buscar(cpf)
     activate L
-    L-->>S: leitor_dados (Verificação de cadastro e situação)
+    L-->>S: leitor_dados (Verificação de cadastro e adimplência)
     deactivate L
     
     S->>V: buscar(isbn)
@@ -93,7 +93,7 @@ sequenceDiagram
         S->>V: salvar(livro_atualizado)
         S-->>B: True, "Empréstimo realizado com sucesso"
     else Indisponível ou Irregular
-        S-->>B: False, "Falha na validação ou Livro indisponível"
+        S->>B: False, "Falha na validação ou Leitor inadimplente"
     end
     deactivate S
 ```
