@@ -2,9 +2,6 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Tuple, Optional
 
-# ==========================================
-# INTERFACES (Contratos)
-# ==========================================
 class IRepositorio(ABC):
     @abstractmethod
     def buscar(self, id: str) -> Optional[dict]:
@@ -14,21 +11,15 @@ class IRepositorio(ABC):
     def salvar(self, entidade: dict) -> int:
         pass
 
-# ==========================================
-# REPOSITÓRIOS (Infraestrutura)
-# ==========================================
 class RepositorioLivro(IRepositorio):
     def buscar(self, isbn: str) -> Optional[dict]:
-        # Implementação real faria SELECT * FROM livros WHERE isbn = ?
         pass
         
     def salvar(self, entidade: dict) -> int:
-        # Implementação real faria UPDATE livros SET exemplares_disponiveis = ?
         pass
 
 class RepositorioLeitor(IRepositorio):
     def buscar(self, cpf: str) -> Optional[dict]:
-        # Implementação real faria SELECT * FROM leitores WHERE cpf = ?
         pass
         
     def salvar(self, entidade: dict) -> int:
@@ -39,20 +30,15 @@ class RepositorioEmprestimo(IRepositorio):
         pass
         
     def salvar(self, entidade: dict) -> int:
-        # Implementação real do INSERT INTO emprestimos
-        return 1  # Retorna ID gerado
+        return 1 
 
 class RepositorioReserva(IRepositorio):
     def buscar(self, id: str) -> Optional[dict]:
         pass
         
     def salvar(self, entidade: dict) -> int:
-        # Implementação real do INSERT INTO reservas
         return 1
 
-# ==========================================
-# SERVIÇOS AUXILIARES
-# ==========================================
 class ServicoNotificacao(ABC):
     @abstractmethod
     def enviar(self, destinatario: str, assunto: str, mensagem: str):
@@ -60,7 +46,6 @@ class ServicoNotificacao(ABC):
 
 class EmailNotificacao(ServicoNotificacao):
     def enviar(self, destinatario: str, assunto: str, mensagem: str):
-        # Lógica isolada do smtplib encapsulada aqui
         pass
 
 class ServicoRelatorio(ABC):
@@ -70,7 +55,6 @@ class ServicoRelatorio(ABC):
 
 class PdfRelatorio(ServicoRelatorio):
     def gerar_comprovante(self, dados: dict):
-        # Lógica isolada do reportlab encapsulada aqui
         pass
 
 class CalculadoraMulta:
@@ -82,9 +66,6 @@ class CalculadoraMulta:
             return dias_atraso * self.TAXA_DIARIA
         return 0.0
 
-# ==========================================
-# DOMÍNIO (Caso de Uso Refatorado)
-# ==========================================
 class GerenciadorEmprestimo:
     """Orquestra o processo de empréstimo usando abstrações (DIP)."""
     
@@ -107,7 +88,6 @@ class GerenciadorEmprestimo:
         self.calculadora_multa = calculadora_multa
     
     def realizar_emprestimo(self, livro_isbn: str, leitor_cpf: str) -> Tuple[bool, str]:
-        # 1. Validações via Repositórios
         livro = self.repo_livro.buscar(livro_isbn)
         if not livro:
             return False, "Livro não encontrado"
@@ -116,7 +96,6 @@ class GerenciadorEmprestimo:
         if not leitor:
             return False, "Leitor não encontrado"
             
-        # 2. Regra de Negócio: Reserva vs Empréstimo
         if livro.get('exemplares_disponiveis', 0) <= 0:
             reserva = {
                 'livro_isbn': livro_isbn,
@@ -126,7 +105,6 @@ class GerenciadorEmprestimo:
             self.repo_reserva.salvar(reserva)
             return False, "Livro indisponível. Reserva criada."
             
-        # 3. Execução do Empréstimo
         data_atual = datetime.now()
         emprestimo = {
             'livro_isbn': livro_isbn,
@@ -140,7 +118,6 @@ class GerenciadorEmprestimo:
         livro['exemplares_disponiveis'] -= 1
         self.repo_livro.salvar(livro)
         
-        # 4. Acionamento de Serviços (Side-effects isolados)
         self.servico_notificacao.enviar(
             destinatario=leitor.get('email'),
             assunto="Empréstimo Realizado",
