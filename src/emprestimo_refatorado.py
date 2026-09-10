@@ -31,6 +31,7 @@ class IServicoRelatorio(ABC):
 # REPOSITÓRIOS SQLITE (Infraestrutura)
 # ==========================================
 def dict_factory(cursor, row):
+    """Converte as tuplas do SQLite em dicionários puros."""
     d = {}
     for idx, col in enumerate(cursor.description):
         d[col[0]] = row[idx]
@@ -40,7 +41,7 @@ class RepositorioLivroSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
 
-    def buscar(self, isbn) -> dict:
+    def buscar(self, isbn: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM livros WHERE isbn = ?", (isbn,)).fetchone()
@@ -57,7 +58,7 @@ class RepositorioLeitorSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
 
-    def buscar(self, cpf) -> dict:
+    def buscar(self, cpf: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM leitores WHERE cpf = ?", (cpf,)).fetchone()
@@ -69,7 +70,7 @@ class RepositorioEmprestimoSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, emp_id) -> dict:
+    def buscar(self, emp_id: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM emprestimos WHERE id = ?", (emp_id,)).fetchone()
@@ -93,7 +94,7 @@ class RepositorioReservaSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, livro_isbn) -> dict:
+    def buscar(self, livro_isbn: str) -> dict:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = dict_factory
             return conn.execute("SELECT * FROM reservas WHERE livro_isbn = ? ORDER BY id ASC LIMIT 1", (livro_isbn,)).fetchone()
@@ -116,7 +117,7 @@ class RepositorioMultaSQLite(IRepositorio):
     def __init__(self, db_path):
         self.db_path = db_path
         
-    def buscar(self, id) -> dict:
+    def buscar(self, id: str) -> dict:
         pass
 
     def salvar(self, entidade: dict) -> int:
@@ -158,7 +159,7 @@ class ServicoPdfReportLab(IServicoRelatorio):
 # DOMÍNIO (Classe Principal Refatorada)
 # ==========================================
 class GerenciadorEmprestimo:
-    """Orquestra o processo respeitando o SOLID e retornando dicionários."""
+    """Orquestra o processo mantendo regras de negócio limpas e isoladas."""
     
     def __init__(
         self, 
@@ -225,7 +226,6 @@ class GerenciadorEmprestimo:
             return False, "Livro indisponível. Reserva criada."
 
     def processar_devolucao(self, emprestimo_id):
-        """Nova funcionalidade: Devolve o livro, cobra multa se houver e checa fila FIFO."""
         emprestimo = self.repo_emprestimo.buscar(emprestimo_id)
         if not emprestimo or emprestimo.get('data_devolucao'):
             return False, "Empréstimo inválido ou já devolvido"
