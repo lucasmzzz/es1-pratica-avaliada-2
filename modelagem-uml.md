@@ -9,15 +9,9 @@ classDiagram
         -String titulo
         -String autor
         -String categoria
+        -int exemplares_disponiveis
         +cadastrarLivro()
         +verificarDisponibilidade() bool
-    }
-    
-    class Exemplar {
-        -int numero_patrimonio
-        -String status
-        +emprestar()
-        +devolver()
     }
     
     class Leitor {
@@ -63,9 +57,8 @@ classDiagram
     Bibliotecario "1" --> "*" Emprestimo : gerencia
     Leitor "1" --> "*" Emprestimo : realiza
     Leitor "1" --> "*" Reserva : solicita
-    Livro "1" --> "*" Exemplar : possui
-    Exemplar "1" --> "*" Emprestimo : é alocado em
     Livro "1" --> "*" Reserva : possui
+    Livro "1" --> "*" Emprestimo : possui (via isbn)
     Emprestimo "1" --> "0..1" Multa : gera
 ```
 
@@ -84,7 +77,7 @@ sequenceDiagram
     
     S->>L: buscar(cpf)
     activate L
-    L-->>S: leitor_dados (Verificação de cadastro)
+    L-->>S: leitor_dados (Verificação de cadastro e situação)
     deactivate L
     
     S->>V: buscar(isbn)
@@ -92,15 +85,15 @@ sequenceDiagram
     V-->>S: livro_dados (Verificação de disponibilidade)
     deactivate V
     
-    alt Exemplares > 0
+    alt Exemplares > 0 e Leitor Adimplente
         S->>E: salvar(entidade_emp)
         activate E
         E-->>S: emp_id
         deactivate E
         S->>V: salvar(livro_atualizado)
         S-->>B: True, "Empréstimo realizado com sucesso"
-    else Exemplares <= 0
-        S-->>B: False, "Livro indisponível. Reserva criada."
+    else Indisponível ou Irregular
+        S-->>B: False, "Falha na validação ou Livro indisponível"
     end
     deactivate S
 ```
