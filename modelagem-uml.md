@@ -75,25 +75,32 @@ classDiagram
 sequenceDiagram
     actor B as Bibliotecário
     participant S as Sistema
-    participant L as Livro
+    participant L as Leitor
+    participant V as Livro
     participant E as Empréstimo
     
-    B->>S: solicitarEmprestimo(isbn, cpf)
+    B->>S: realizar_emprestimo(isbn, cpf)
     activate S
-    S->>L: verificarDisponibilidade(isbn)
+    
+    S->>L: buscar(cpf)
     activate L
-    L-->>S: exemplares > 0
+    L-->>S: leitor_dados
     deactivate L
     
-    alt Disponível
-        S->>E: criarEmprestimo(isbn, cpf, data_atual)
+    S->>V: buscar(isbn)
+    activate V
+    V-->>S: livro_dados
+    deactivate V
+    
+    alt Exemplares > 0
+        S->>E: salvar(entidade_emp)
         activate E
-        E-->>S: emprestimo_id
+        E-->>S: emp_id
         deactivate E
-        S->>L: decrementarExemplares(isbn)
-        S-->>B: Empréstimo realizado com sucesso
-    else Indisponível
-        S-->>B: Falha: Livro indisponível
+        S->>V: salvar(livro_atualizado)
+        S-->>B: True, "Empréstimo realizado"
+    else Exemplares <= 0
+        S-->>B: False, "Livro indisponível. Reserva criada."
     end
     deactivate S
 ```
@@ -105,14 +112,17 @@ flowchart TD
     A([Iniciar Devolução]) --> B[Registrar data de devolução]
     B --> C{Entregue com atraso?}
     
-    C -- Sim --> D[Calcular Multa]
+    C -- Sim --> D[Calcular e Aplicar Multa]
     D --> E{Existem reservas pendentes?}
     
     C -- Não --> E
     
-    E -- Sim --> F[Notificar o primeiro leitor da fila]
-    F --> G([Finalizar com Notificação])
+    E -- Sim --> F[Notificar primeiro leitor da fila]
+    F --> G([Fim: Com multa, Com reserva])
     
     E -- Não --> H[Incrementar estoque do livro]
-    H --> I([Finalizar Padrão])
+    H --> I{Houve aplicação de multa?}
+    
+    I -- Sim --> J([Fim: Com multa, Sem reserva])
+    I -- Não --> K([Fim: Sem multa, Sem reserva])
 ```
